@@ -73,6 +73,23 @@ def _follow_audio_kbps(video_bps: int) -> int:
     return 64 if video_bps < 500_000 else 128
 
 
+def _estimate_video_bps_for_follow(info: VideoInfo, params: EncodeParams) -> int:
+    """为 follow 音频模式粗估视频目标码率（仅用于判定 64k/128k 档位）。
+
+    planned_audio_bps 被调用时计划尚未算出视频码率，这里按当前 size_mode
+    给出与 compute_bitrate_plan 同方向的近似值，避免预估音频误报为 192k。
+    """
+    if params.size_mode == "crf":
+        return estimate_crf_bitrate(info, params.encoder, params.crf)
+    duration = max(info.duration, 0.1)
+    target = target_bytes_for(info, params)
+    if target <= 0:
+        return 2_000_000
+    total_bps = int(target * 8 / duration * (1 - CONTAINER_OVERHEAD))
+    # 粗估视频占总码率的 85%（其余留给音频/容器），足以判定 <500k 的档位
+    return max(int(total_bps * 0.85), 0)
+
+
 @dataclass
 class BitratePlan:
     mode: str = "absolute"
@@ -102,6 +119,10 @@ def planned_audio_bps(info: VideoInfo, params: EncodeParams) -> int:
         return int((info.a_sample_rate or 48000) * 16 * (info.a_channels or 2) * 0.55)
     if mode == "wav":
         return int((info.a_sample_rate or 48000) * 16 * (info.a_channels or 2))
+    if mode == "follow":
+        # 跟随压缩：按视频目标码率选 64k/128k（<500k→64k，否则 128k）。
+        # 此前 fallthrough 返回 192k，导致预估总体积 / 最小建议体积偏大。
+        return _follow_audio_kbps(_estimate_video_bps_for_follow(info, params)) * 1000
     return params.audio_bitrate or 192_000
 
 
