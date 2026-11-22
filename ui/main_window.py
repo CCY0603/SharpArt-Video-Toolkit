@@ -1049,11 +1049,18 @@ class MainWindow(QWidget):
 
     # ------------------------------------------------------------ 设置
     def _open_settings(self) -> None:
+        if self._queue.active:
+            QMessageBox.information(self, "正在处理", "编码进行中无法修改设置，请先停止当前任务。")
+            return
         dialog = SettingsDialog(self._settings, self._caps, self)
         dialog.settingsSaved.connect(self._on_settings_saved)
         dialog.exec()
 
     def _on_settings_saved(self) -> None:
+        if self._queue.active:
+            # 设置已写入磁盘，但编码中途不替换能力表，避免后续任务参数漂移
+            QMessageBox.information(self, "正在处理", "设置已保存，将在当前任务结束后生效。")
+            return
         self._caps = detect(self._settings.ffmpeg_path, self._settings.probe_path)
         self._queue.set_caps(self._caps)
         self._settings_panel.set_caps(self._caps)
