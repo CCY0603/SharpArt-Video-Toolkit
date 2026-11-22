@@ -203,7 +203,14 @@ class FFmpegRunner(QObject):
             return
         if process.state() != QProcess.NotRunning:
             _debug("【FFMPEG 超时】进程无响应，强制终止")
+            # 先标记完成并停掉看门狗，否则被 kill 的进程随后触发的 finished
+            # 信号会进入 _on_finished（_done 仍为 False）再次发射 finished，
+            # 导致队列收到重复完成回调、重复启动下一个任务。
+            self._done = True
+            self._stop_watchdog()
             process.kill()
+            if self._process is process:
+                self._process = None
             self._emit_finished(False, "编码超时（进程无响应，已强制终止）")
 
     def _on_finished(self, exit_code: int, process=None) -> None:
