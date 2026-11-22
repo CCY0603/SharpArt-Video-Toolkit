@@ -35,6 +35,7 @@ from app.config import (
 )
 from core.capabilities import Capabilities
 from core.models import TaskItem
+from core.power import cancel_shutdown
 from core.profiles import EXTRACT_FORMATS
 from core.report import build_report_text
 from ui.widgets import Card, SavtRadioButton, caption, subheading
@@ -334,6 +335,16 @@ class ShutdownCountdown(QDialog):
         self._canceled = True
         self._timer.stop()
         self.reject()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        # 关闭窗口（X）即视为取消关机：_offer_shutdown 在 exec() 之前已调度关机，
+        # 默认 reject() 不会置 _canceled，会导致机器仍按计划关机，与文案
+        # 「关闭本窗口即可中止」不符。
+        if not self._canceled:
+            self._canceled = True
+            self._timer.stop()
+            cancel_shutdown()
+        super().closeEvent(event)
 
     @property
     def canceled(self) -> bool:
