@@ -1024,6 +1024,16 @@ class MainWindow(QWidget):
         info = self._info_panel.current_info()
         if info is None or not info.has_audio:
             return
+        # 并发保护：若上一次提取仍在进行，先取消旧进程，避免 QProcess 泄漏
+        # 以及旧 runner 的迟到 finished 回调覆盖新任务（把 _audio_runner 置空）。
+        if self._audio_runner is not None:
+            try:
+                self._audio_runner.cancel()
+            except Exception:
+                pass
+            self._audio_runner = None
+            cur = self._info_panel.current_info()
+            self._info_panel._extract_btn.setEnabled(cur is not None and cur.has_audio)
         dialog = ExtractAudioDialog(info.name, self)
         if dialog.exec() != ExtractAudioDialog.Accepted:
             return
@@ -1033,14 +1043,23 @@ class MainWindow(QWidget):
 
         runner = FFmpegRunner(self._caps.ffmpeg, self)
         self._audio_runner = runner
+        self._info_panel._extract_btn.setEnabled(False)
         runner.progress.connect(
             lambda value, _p, _t: self._set_status_text(f"正在提取音频… {value * 100:.0f}%")
         )
-        runner.finished.connect(lambda ok, err: self._on_audio_done(ok, err, output))
+        runner.finished.connect(lambda ok, err: self._on_audio_done(ok, err, output, runner))
         runner.start([args], info.duration)
 
-    def _on_audio_done(self, ok: bool, error: str, output: str) -> None:
-        self._audio_runner = None
+    def _on_audio_done(self, ok: bool, error: str, output: str, runner: FFmpegRunner) -> None:
+        # 仅当前活动 runner 的回调才更新状态：被取代的旧 runner（cancel 后迟到的
+        # finished）静默忽略，避免其把 _audio_runner 置空、打断新任务或弹错误框。
+        current = runner is self._audio_runner
+        if current:
+            self._audio_runner = None
+            cur = self._info_panel.current_info()
+            self._info_panel._extract_btn.setEnabled(cur is not None and cur.has_audio)
+        if not current:
+            return
         if ok:
             self._set_status_text(f"音频已导出：{output}")
             QMessageBox.information(self, "提取完成", f"音频已导出到：\n{output}")
@@ -1164,6 +1183,13 @@ class MainWindow(QWidget):
                 event.ignore()
                 return
             self._queue.cancel_all()
+        # 关闭窗口时终止可能仍在后台运行的音频提取进程，避免残留
+        if self._audio_runner is not None:
+            try:
+                self._audio_runner.cancel()
+            except Exception:
+                pass
+            self._audio_runner = None
         self._hardware.stop()
         self._settings.sync()
         super().closeEvent(event)
