@@ -133,7 +133,11 @@ class CourseCompressDialog(QDialog):
     # ------------------------------------------------------------ 取值
     def params(self) -> CourseParams:
         sample_text = self._sample.currentText()
-        sample_rate = int(sample_text.split()[0])
+        try:
+            sample_rate = int(sample_text.split()[0])
+        except (ValueError, IndexError):
+            # 下拉项当前固定，正常不会触发；防御取值异常（空文本/非数字）时回退 48 kHz
+            sample_rate = 48000
         return CourseParams(
             video_bitrate_kbps=self._vbr.value(),
             width=self._width.value(),
