@@ -427,11 +427,16 @@ def build_ffmpeg_args(
     if params.container in ("mkv", "mov", "mp4"):
         args += ["-map_metadata", "0", "-map_chapters", "0"]
 
-    filters = _scale_filter(info, params)
-    if filters:
-        args += ["-vf", ",".join(filters)]
-    if params.fps_cap and info.fps and info.fps > params.fps_cap:
-        args += ["-r", f"{params.fps_cap:g}"]
+    if params.size_mode != "streamcopy":
+        # 仅转封装（-c:v copy）时不能附带 -vf / -r，否则 ffmpeg 报错
+        # "Filtering and streamcopy cannot be used together"。
+        # 触发场景：压缩卡选了 720p/1080p 后切到「仅转格式」页（分辨率下拉值共享），
+        # 任务变成 streamcopy 却仍带缩放/限速滤镜，导致整批失败。
+        filters = _scale_filter(info, params)
+        if filters:
+            args += ["-vf", ",".join(filters)]
+        if params.fps_cap and info.fps and info.fps > params.fps_cap:
+            args += ["-r", f"{params.fps_cap:g}"]
 
     args += _video_args(info, params, plan, encoder, caps)
     args += _audio_args(info, params, plan, caps)
