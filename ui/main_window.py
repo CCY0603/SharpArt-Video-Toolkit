@@ -963,7 +963,9 @@ class MainWindow(QWidget):
             dialog.exportListRequested.connect(self._export_list_to)
             dialog.exec()
 
-        if self._settings_panel.shutdown_enabled():
+        # 用户在报告对话框里点了「重试」会调用 _retry_tasks → _queue.start，
+        # 队列重新变 active。此时不应再弹出关机倒计时，否则一边编码一边关机。
+        if self._settings_panel.shutdown_enabled() and not self._queue.active:
             self._offer_shutdown()
 
     def _retry_tasks(self, tasks: List[TaskItem]) -> None:
