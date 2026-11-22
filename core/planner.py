@@ -301,14 +301,19 @@ def _rate_control_args(info: VideoInfo, params: EncodeParams, plan: BitratePlan,
                      "-maxrate", str(int(video_bps * 1.6)), "-bufsize", str(int(video_bps * 2))]
         return args
 
+    # 课程压缩（单遍 + 课程预设）：先把目标码率抬到用户设定下限并预留 1% 余量，
+    # 再统一写入 -b:v / -minrate / -maxrate，保证三者一致。否则 -b:v 用的是
+    # 未抬高的旧值，而 -minrate/-maxrate 用抬高后的新值，出现 minrate > b:v，
+    # 与 x264 严格 CBR（nal-hrd=cbr）的预期矛盾。
+    is_course = (not plan.two_pass) and params.preset_name == COURSE_PRESET_NAME
+    if is_course:
+        video_bps = max(video_bps, params.min_video_bitrate or video_bps)
+        video_bps = int(video_bps * 1.01)
+
     args += ["-preset", "medium", "-b:v", str(video_bps)]
     if not plan.two_pass:
-        if params.preset_name == COURSE_PRESET_NAME:
-            # 课程压缩：严格 CBR，以用户设定的最低视频码率为硬下限，
-            # 并强制 libx264 填充 filler，确保平均码率不随画面复杂度 undershoot。
-            # 预留 1% 余量，抵消容器/取整误差，保证 Windows 显示的视频码率 ≥ 设定下限。
-            video_bps = max(video_bps, params.min_video_bitrate or video_bps)
-            video_bps = int(video_bps * 1.01)
+        if is_course:
+            # 严格 CBR：强制 libx264 填充 filler，确保平均码率不随画面复杂度 undershoot。
             args += ["-minrate:v", str(video_bps),
                      "-maxrate:v", str(video_bps),
                      "-bufsize:v", str(int(video_bps)),
